@@ -4,7 +4,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
 env/
@@ -25,7 +25,7 @@ staticfiles/
 .coverage
 htmlcov/
 
-# IDE and OS
+# IDE and operating system
 .vscode/
 .idea/
 .DS_Store
