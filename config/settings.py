@@ -47,6 +47,10 @@ ALLOWED_HOSTS = [
 ]
 
 
+HEIGIT_API_KEY = os.getenv("HEIGIT_API_KEY")
+HEIGIT_BASE_URL = "https://api.heigit.org"
+
+
 # Application definition
 
 INSTALLED_APPS = [
