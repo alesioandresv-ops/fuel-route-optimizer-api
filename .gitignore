@@ -30,3 +30,7 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Assessment datasets
+data/
+
