@@ -31,6 +31,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Assessment datasets
-data/
+# Assessment datasets (raw input stays local; derived references are committed)
+/data/
 

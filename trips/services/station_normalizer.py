@@ -140,7 +140,8 @@ def normalize_station(feature: dict[str, Any]) -> GeographicStation:
             "Distance cannot be negative."
         )
 
-    tags = properties.get("osm_tags_full", {})
+    # HeiGIT may return either the enriched tag set or the compact one.
+    tags = properties.get("osm_tags_full") or properties.get("osm_tags") or {}
 
     if not isinstance(tags, dict):
         raise StationNormalizationError(

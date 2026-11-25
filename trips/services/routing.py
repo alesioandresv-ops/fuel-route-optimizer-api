@@ -10,6 +10,7 @@ class RouteResult:
     distance_meters: float
     duration_seconds: float
     coordinates: list[list[float]]
+    road_names: tuple[str, ...] = ()
 
 
 class RoutingServiceError(Exception):
@@ -54,7 +55,7 @@ def get_route(
             list(origin),
             list(destination),
         ],
-        "instructions": False,
+        "instructions": True,
     }
 
     try:
@@ -119,6 +120,20 @@ def get_route(
             ):
                 raise ValueError("Invalid route coordinate values.")
 
+        raw_segments = feature["properties"].get("segments", [])
+        if not isinstance(raw_segments, list):
+            raise ValueError("Invalid route segments.")
+
+        road_names = tuple(
+            step["name"]
+            for segment in raw_segments
+            if isinstance(segment, dict)
+            for step in segment.get("steps", [])
+            if isinstance(step, dict)
+            and isinstance(step.get("name"), str)
+            and step["name"].strip()
+        )
+
     except (ValueError, KeyError, IndexError, TypeError) as error:
         raise RoutingServiceError(
             "HeiGIT returned an invalid route response."
@@ -128,4 +143,5 @@ def get_route(
         distance_meters=distance,
         duration_seconds=duration,
         coordinates=coordinates,
+        road_names=road_names,
     )

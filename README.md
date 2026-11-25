@@ -10,10 +10,14 @@ The project focuses on route feasibility, transparent distance estimation, and d
 - Fuel station discovery using HeiGIT OpenPOIService and OpenStreetMap data.
 - Route geometry and distance calculation.
 - Vehicle range and fuel consumption configuration.
-- Refueling stop optimization based on route feasibility.
+- Refueling stop optimization based on route feasibility and fuel price.
+- Cost-aware dynamic programming when station prices are available.
 - Partial initial fuel support.
 - Geographic station normalization and validation.
-- Explicit handling of unavailable or unverified fuel prices.
+- CSV-derived corridor price references with source row traceability.
+- Real in-process cache with measured external call counters.
+- United States coordinate validation.
+- Explicit handling of unverified and non-station-specific prices.
 - Automated tests for services, serializers, optimization logic, and API behavior.
 
 ## Technology Stack
@@ -151,18 +155,21 @@ The response includes:
 - Optimization feasibility and recommended stops.
 - Geographic fuel stations discovered along the route.
 - Separately identified priced stations.
-- Fuel cost information when verified prices are available.
-- Data quality warnings and external API call information.
+- Fuel cost estimated from a CSV-derived corridor price reference.
+- Source rows and observation count used for that reference.
+- Data quality warnings and measured external API call information.
 
 ## Optimization Approach
 
-The optimization service is independent of external data providers.
+The optimization service is independent of external data providers. It receives route coordinates, stations with optional `price_per_gallon`, and a vehicle configuration.
 
-It evaluates candidate stations according to their position along the route, lateral distance, vehicle range, and available fuel.
+It evaluates candidate stations according to their position along the route, lateral distance, vehicle range, available fuel, and price.
+
+- When every candidate station has a price, a dynamic program minimizes the cost of fuel bought for the legs between stops, respecting range and initial fuel.
+- When prices are unavailable, it falls back to the minimum number of feasible stops, then the lowest geometric detour, and reports `optimized_for_cost: false`.
+- The first leg is limited by the vehicle's initial fuel. Fuel already in the tank is not re-priced at a stop.
 
 The current implementation uses geometric distance approximations to estimate station detours. It does not calculate actual road distances for each detour.
-
-The optimizer prioritizes feasible refueling plans with fewer stops and then lower estimated geometric detour distance.
 
 ## Fuel Price Data Quality
 
@@ -172,18 +179,29 @@ Original price observations are preserved, including duplicate observations and 
 
 For station-level price summaries, the median is calculated using distinct observed price values to prevent duplicate entries from disproportionately affecting the estimate. All original observations remain preserved, and the observation count, source rows, minimum, and maximum reflect the original records.
 
-Station prices are not associated with geographic stations unless a sufficiently reliable match can be established.
+Station prices are not associated with geographic stations unless a sufficiently reliable match can be established. No such match was verified in the supplied data: city and brand are not evidence of identity, and the shared Florida rows had no matching station number or address.
 
-When no verified price matches are available:
+Instead, the API derives a **corridor price reference** from the CSV:
 
-- Geographic stations are still returned.
-- Fuel prices remain `null`.
-- Fuel cost remains unavailable.
-- The API reports `no_verified_price_matches`.
+- `scripts/build_price_references.py` reads the original file and writes `trips/data/price_references.json`.
+- The artifact aggregates observations by route and state, preserving `source_rows`.
+- The runtime uses the median of distinct observed values, plus count, minimum, and maximum.
+- A route reference (for example `I 95, US 41`) takes precedence over a state reference; a national reference is the final fallback.
+- `fuel_cost.total` is estimated as `route_distance_miles / mpg * reference_price`. It is a corridor estimate, **not a quote for any station**.
+- `station_specific` is always `false` and `verified_price_matches` is always `0` for live requests.
+- The response reports `no_verified_price_matches` and `reference_price_not_station_quote`.
 
-Currency and fuel type remain unspecified when the source data does not establish them.
+The response also exposes `purchase_cost_at_stops`, which is only populated when the optimizer receives station-specific prices (for example in the labeled synthetic tests).
 
-The original assessment dataset and research snapshots are excluded from this repository.
+Currency and fuel type remain unspecified because the source data does not establish them.
+
+The original assessment dataset and research snapshots are excluded from this repository. Only the small derived reference artifact is committed.
+
+Regenerate the artifact with:
+
+```bash
+python scripts/build_price_references.py
+```
 
 ## Research Scripts
 
@@ -195,8 +213,13 @@ The `scripts/` directory contains exploratory tools used to analyze geographic s
 | `analyze_osm_matches.py` | Analyzes matches between OSM identifiers and geographic snapshots. |
 | `inspect_florida_matches.py` | Investigates potential station matches in Florida. |
 | `inspect_station_data.py` | Inspects station tags and geographic data. |
+| `build_price_references.py` | Generates the committed, traceable price reference artifact. |
 
 These scripts require corresponding local input files in `data/`, which are not included in the repository.
+
+## Postman Collection
+
+`postman/Fuel Route Optimizer.postman_collection.json` contains the three requests used in the demo: the live Miami–Orlando route, a partial-fuel variant, and a non-US validation example. Set the `base_url` variable if the server is not on `127.0.0.1:8000`.
 
 ## Running Tests
 
@@ -206,19 +229,21 @@ Run the complete test suite:
 pytest -v
 ```
 
-The current test suite contains 84 automated tests covering:
+The current test suite contains 108 automated tests covering:
 
-- Fuel price CSV processing.
-- Route optimization.
+- Fuel price CSV processing and reference artifact generation.
+- Cost-aware and range-only route optimization.
 - Routing and POI service integrations.
-- Request validation.
-- Geographic station normalization.
+- Request validation, including United States bounds.
+- Geographic station normalization and tag fallback.
+- Cache hit accounting.
 - API endpoint behavior and provider errors.
 
 ## Current Limitations
 
-- No fuel price-to-location matches have been verified yet.
+- No station-specific fuel price matches have been verified; costs use a CSV-derived corridor reference.
 - Actual road detour distances are not calculated.
+- State assignment from coordinates uses approximate bounding boxes.
 - Vehicle tank capacity is an assumption derived from range and MPG.
 - Fuel currency and product type are unspecified when not established by the source dataset.
 - External API availability and rate limits may affect live requests.
@@ -229,4 +254,6 @@ Core API implementation and automated tests are complete for the current develop
 
 The real routing and fuel station discovery integrations have been tested using a Miami–Orlando route.
 
-Further work can improve geographic enrichment, verified price matching, and road-based detour calculations.
+In the live Miami–Orlando check the API returned 235.59 miles, 155 named stations, a CSV route reference based on `I 95` and `US 41`, a non-null fuel cost, and two external calls on the first request (zero on a cache hit).
+
+Further work can improve geographic enrichment, verified station-to-price matching, road-based detour calculations, and distributed caching.

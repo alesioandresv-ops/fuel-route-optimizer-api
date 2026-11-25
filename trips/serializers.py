@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from trips.services.price_reference import is_in_usa
+
 
 class CoordinateSerializer(serializers.Serializer):
     longitude = serializers.FloatField(
@@ -76,6 +78,17 @@ class OptimizeRouteRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Origin and destination must be different."
             )
+
+        location_errors = {}
+
+        for field, point in (("origin", origin), ("destination", destination)):
+            if not is_in_usa(point["longitude"], point["latitude"]):
+                location_errors[field] = (
+                    "Location must be within the United States."
+                )
+
+        if location_errors:
+            raise serializers.ValidationError(location_errors)
 
         if "vehicle" not in attrs:
             attrs["vehicle"] = VehicleSerializer().to_internal_value({})

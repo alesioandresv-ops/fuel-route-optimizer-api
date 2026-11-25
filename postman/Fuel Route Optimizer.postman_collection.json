@@ -1,0 +1,97 @@
+{
+  "info": {
+    "name": "Fuel Route Optimizer API",
+    "description": "Spotter backend assessment. POST /api/v1/trips/optimize/ expects coordinates in [longitude, latitude] order. fuel_cost.total is a CSV-derived corridor estimate, not a station quote. The optimizer supports station-specific prices when available; the synthetic price-sensitivity fixtures live in tests/test_cost_optimizer.py.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Optimize route - Miami to Orlando",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"origin\": {\n    \"longitude\": -80.1918,\n    \"latitude\": 25.7617\n  },\n  \"destination\": {\n    \"longitude\": -81.3792,\n    \"latitude\": 28.5383\n  }\n}\n",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/trips/optimize/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "trips", "optimize", ""]
+        },
+        "description": "Live route. First call reports external_calls.total = 2 (routing + POI). Repeat it to see cache_hit = true and zero new external calls."
+      }
+    },
+    {
+      "name": "Optimize route - partial initial fuel",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"origin\": {\n    \"longitude\": -80.1918,\n    \"latitude\": 25.7617\n  },\n  \"destination\": {\n    \"longitude\": -81.3792,\n    \"latitude\": 28.5383\n  },\n  \"vehicle\": {\n    \"max_range_miles\": 500,\n    \"mpg\": 10,\n    \"initial_fuel_gallons\": 12\n  }\n}\n",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/trips/optimize/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "trips", "optimize", ""]
+        },
+        "description": "120 miles of initial range on a 235 mile route forces a refueling stop. The response declares that the calculated capacity is an assumption."
+      }
+    },
+    {
+      "name": "Validation - non-US coordinates return 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"origin\": {\n    \"longitude\": 2.3522,\n    \"latitude\": 48.8566\n  },\n  \"destination\": {\n    \"longitude\": -81.3792,\n    \"latitude\": 28.5383\n  }\n}\n",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/trips/optimize/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "trips", "optimize", ""]
+        },
+        "description": "Shows that coordinates outside the United States are rejected before any external call is made."
+      }
+    }
+  ]
+}

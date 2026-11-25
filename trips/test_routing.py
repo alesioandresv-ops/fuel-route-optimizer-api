@@ -58,6 +58,43 @@ def test_get_route_success(monkeypatch, valid_route_response):
     assert len(route.coordinates) == 2
 
 
+def test_get_route_extracts_road_names_without_extra_calls(
+    monkeypatch, valid_route_response
+):
+    monkeypatch.setattr(
+        "trips.services.routing.settings.HEIGIT_API_KEY",
+        "test-api-key",
+    )
+    valid_route_response["features"][0]["properties"]["segments"] = [
+        {
+            "steps": [
+                {"name": "I-95"},
+                {"name": "I-4"},
+                {"name": ""},
+            ]
+        }
+    ]
+
+    def mock_post(*args, **kwargs):
+        return httpx.Response(
+            200,
+            json=valid_route_response,
+            request=httpx.Request("POST", "https://test.example"),
+        )
+
+    monkeypatch.setattr(
+        "trips.services.routing.httpx.post",
+        mock_post,
+    )
+
+    route = get_route(
+        origin=(-80.1918, 25.7617),
+        destination=(-81.3792, 28.5383),
+    )
+
+    assert route.road_names == ("I-95", "I-4")
+
+
 def test_get_route_rejects_invalid_coordinates():
     with pytest.raises(ValueError):
         get_route(

@@ -49,6 +49,15 @@ ALLOWED_HOSTS = [
 
 HEIGIT_API_KEY = os.getenv("HEIGIT_API_KEY")
 HEIGIT_BASE_URL = "https://api.heigit.org"
+EXTERNAL_CACHE_TIMEOUT = int(os.getenv("EXTERNAL_CACHE_TIMEOUT", "3600"))
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "fuel-route-optimizer",
+        "TIMEOUT": EXTERNAL_CACHE_TIMEOUT,
+    }
+}
 
 
 # Application definition

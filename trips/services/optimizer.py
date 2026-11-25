@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from decimal import Decimal
 import math
 
 EARTH_RADIUS_M = 6_371_000.0
@@ -80,6 +81,9 @@ class PlannedStop:
     estimated_detour_miles: float
     fuel_at_arrival_gallons: float
     fuel_after_refuel_gallons: float
+    price_per_gallon: Decimal | None = None
+    estimated_cost: Decimal | None = None
+
 
 @dataclass(frozen=True)
 class OptimizationResult:
@@ -89,6 +93,8 @@ class OptimizationResult:
     estimated_total_distance_miles: float
     remaining_fuel_gallons: float | None
     warnings: tuple[str, ...]
+    total_cost: Decimal | None = None
+    optimized_for_cost: bool = False
 
 
 def _validate_coordinate(
@@ -246,11 +252,179 @@ def locate_station_on_route(
 
 
 
+def _build_cost_plan(
+    candidates: list[dict],
+    route_distance_miles: float,
+    vehicle: VehicleConfig,
+    starting_range_miles: float,
+) -> tuple[list[PlannedStop], Decimal, float, float] | None:
+    """Select stops that minimize purchased fuel cost, subject to range."""
+
+    capacity = vehicle.capacity_gallons
+    maximum_range = capacity * vehicle.mpg
+    count = len(candidates)
+
+    best_cost: list[Decimal | None] = [None] * count
+    best_stops: list[int | None] = [None] * count
+    predecessors: list[int | None] = [None] * count
+
+    for i, candidate in enumerate(candidates):
+        progress = candidate["position"].progress_miles
+        lateral = candidate["lateral_miles"]
+
+        if progress + lateral <= starting_range_miles:
+            best_cost[i] = Decimal("0")
+            best_stops[i] = 1
+
+        for j in range(i):
+            if best_cost[j] is None or best_stops[j] is None:
+                continue
+
+            previous = candidates[j]
+            leg = (
+                previous["lateral_miles"]
+                + (progress - previous["position"].progress_miles)
+                + lateral
+            )
+            if leg <= 0 or leg > maximum_range:
+                continue
+
+            price = previous["station"].price_per_gallon
+            if price is None:
+                continue
+
+            proposed = best_cost[j] + Decimal(str(leg / vehicle.mpg)) * price
+            proposed_stops = best_stops[j] + 1
+
+            if (
+                best_cost[i] is None
+                or proposed < best_cost[i]
+                or (
+                    proposed == best_cost[i]
+                    and proposed_stops < (best_stops[i] or count + 1)
+                )
+            ):
+                best_cost[i] = proposed
+                best_stops[i] = proposed_stops
+                predecessors[i] = j
+
+    best_total: Decimal | None = None
+    last_index: int | None = None
+    remaining_fuel = 0.0
+
+    for i, candidate in enumerate(candidates):
+        if best_cost[i] is None:
+            continue
+
+        final_leg = (
+            route_distance_miles
+            - candidate["position"].progress_miles
+            + candidate["lateral_miles"]
+        )
+        if final_leg < 0 or final_leg > maximum_range:
+            continue
+
+        price = candidate["station"].price_per_gallon
+        if price is None:
+            continue
+
+        proposed = best_cost[i] + Decimal(str(final_leg / vehicle.mpg)) * price
+
+        current_stops = (
+            best_stops[last_index] if last_index is not None else count + 1
+        )
+        candidate_stops = best_stops[i] or count + 1
+
+        if (
+            best_total is None
+            or proposed < best_total
+            or (proposed == best_total and candidate_stops < current_stops)
+        ):
+            best_total = proposed
+            last_index = i
+            remaining_fuel = vehicle.capacity_gallons - final_leg / vehicle.mpg
+
+    if last_index is None or best_total is None:
+        return None
+
+    selected: list[int] = []
+    current: int | None = last_index
+    while current is not None:
+        selected.append(current)
+        current = predecessors[current]
+    selected.reverse()
+
+    stops: list[PlannedStop] = []
+    total_detours = 0.0
+
+    for order, index in enumerate(selected):
+        candidate = candidates[index]
+        lateral = candidate["lateral_miles"]
+        total_detours += 2 * lateral
+
+        if order == 0:
+            leg = (
+                candidate["position"].progress_miles
+                + lateral
+            )
+            arrival_fuel = vehicle.starting_fuel_gallons - leg / vehicle.mpg
+        else:
+            previous = candidates[selected[order - 1]]
+            leg = (
+                candidate["position"].progress_miles
+                - previous["position"].progress_miles
+                + previous["lateral_miles"]
+                + lateral
+            )
+            arrival_fuel = capacity - leg / vehicle.mpg
+
+        next_candidate = (
+            candidates[selected[order + 1]]
+            if order + 1 < len(selected)
+            else None
+        )
+
+        if next_candidate is None:
+            next_progress = route_distance_miles
+            next_lateral = 0.0
+        else:
+            next_progress = next_candidate["position"].progress_miles
+            next_lateral = next_candidate["lateral_miles"]
+
+        purchase_leg = (
+            next_progress
+            - candidate["position"].progress_miles
+            + lateral
+            + next_lateral
+        )
+        price = candidate["station"].price_per_gallon
+        estimated_cost = (
+            Decimal(str(purchase_leg / vehicle.mpg)) * price
+            if price is not None
+            else None
+        )
+
+        stops.append(
+            PlannedStop(
+                station=candidate["station"],
+                position=candidate["position"],
+                estimated_detour_miles=2 * lateral,
+                fuel_at_arrival_gallons=max(0.0, arrival_fuel),
+                fuel_after_refuel_gallons=capacity,
+                price_per_gallon=price,
+                estimated_cost=estimated_cost,
+            )
+        )
+
+    return stops, best_total, max(0.0, remaining_fuel), total_detours
+
+
 def optimize_route(
     route_coordinates,
     stations,
     vehicle,
     max_lateral_distance_m=1000.0,
+    route_distance_miles=None,
 ):
     """
     Find a feasible refueling plan with the minimum number of stops.
@@ -298,8 +472,9 @@ def optimize_route(
         route_coordinates[0][1],
     )
 
-    # Calculate total route distance.
-    route_distance_m = sum(
+    # The provider's distance is authoritative. Geometry is used only to
+    # place stations along the route; progress is scaled to match it.
+    geometry_distance_m = sum(
         _haversine_distance(
             route_coordinates[index][0],
             route_coordinates[index][1],
@@ -309,7 +484,23 @@ def optimize_route(
         for index in range(len(route_coordinates) - 1)
     )
 
-    route_distance_miles = route_distance_m / METERS_PER_MILE
+    if geometry_distance_m <= 0:
+        raise OptimizationError("Route geometry has zero length.")
+
+    if route_distance_miles is None:
+        route_distance_miles = geometry_distance_m / METERS_PER_MILE
+        progress_scale = 1.0
+    else:
+        if (
+            isinstance(route_distance_miles, bool)
+            or not isinstance(route_distance_miles, (int, float))
+            or not math.isfinite(route_distance_miles)
+            or route_distance_miles <= 0
+        ):
+            raise OptimizationError("Invalid provider route distance.")
+        progress_scale = route_distance_miles / (
+            geometry_distance_m / METERS_PER_MILE
+        )
 
     starting_fuel = vehicle.starting_fuel_gallons
     capacity = vehicle.capacity_gallons
@@ -331,6 +522,8 @@ def optimize_route(
             estimated_total_distance_miles=route_distance_miles,
             remaining_fuel_gallons=max(0.0, remaining_fuel),
             warnings=(),
+            total_cost=None,
+            optimized_for_cost=False,
         )
 
     # Normalize and filter stations.
@@ -347,6 +540,12 @@ def optimize_route(
             raise OptimizationError(
                 "Invalid station object."
             ) from exc
+
+        if progress_scale != 1.0:
+            position = replace(
+                position,
+                progress_miles=position.progress_miles * progress_scale,
+            )
 
         if position.lateral_distance_m > max_lateral_distance_m:
             continue
@@ -374,6 +573,49 @@ def optimize_route(
             item["lateral_miles"],
         )
     )
+
+    cost_mode = bool(candidates) and all(
+        getattr(candidate["station"], "price_per_gallon", None) is not None
+        for candidate in candidates
+    )
+
+    if cost_mode:
+        cost_plan = _build_cost_plan(
+            candidates,
+            route_distance_miles,
+            vehicle,
+            starting_range,
+        )
+
+        if cost_plan is None:
+            return OptimizationResult(
+                feasible=False,
+                stops=(),
+                route_distance_miles=route_distance_miles,
+                estimated_total_distance_miles=route_distance_miles,
+                remaining_fuel_gallons=None,
+                warnings=("no_feasible_refueling_plan",),
+                optimized_for_cost=True,
+            )
+
+        stops, total_cost, remaining, detours = cost_plan
+
+        warnings: tuple[str, ...] = ()
+        if starting_fuel < capacity:
+            warnings = ("initial_leg_cost_excluded",)
+
+        return OptimizationResult(
+            feasible=True,
+            stops=tuple(stops),
+            route_distance_miles=route_distance_miles,
+            estimated_total_distance_miles=(
+                route_distance_miles + detours
+            ),
+            remaining_fuel_gallons=remaining,
+            warnings=warnings,
+            total_cost=total_cost,
+            optimized_for_cost=True,
+        )
 
     # Dynamic programming:
     # best_stops[i] = minimum stops needed to reach station i.
