@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Fuel Route Optimizer API",
-    "description": "Spotter backend assessment. POST /api/v1/trips/optimize/ expects coordinates in [longitude, latitude] order. fuel_cost.total is a CSV-derived corridor estimate, not a station quote. The optimizer supports station-specific prices when available; the synthetic price-sensitivity fixtures live in tests/test_cost_optimizer.py.",
+    "description": "Spotter backend assessment. POST /api/v1/trips/optimize/ expects coordinates in [longitude, latitude] order. fuel_cost.estimated_trip_fuel_cost is the CSV-derived cost of fuel consumed; fuel_cost.estimated_refueling_cost is the cost of purchases at stops and is null unless station-specific prices exist. Neither is a confirmed monetary quote. The price-sensitivity fixtures live in trips/test_cost_optimizer.py.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

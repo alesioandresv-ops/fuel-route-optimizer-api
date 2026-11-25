@@ -94,8 +94,13 @@ def test_optimize_route_success_without_verified_prices(
     assert data["geographic_stations"] == []
     assert data["priced_stations"] == []
 
-    assert data["fuel_cost"]["total"] > 0
+    assert data["fuel_cost"]["estimated_trip_fuel_cost"] > 0
+    assert data["fuel_cost"]["estimated_refueling_cost"] is None
+    assert "No station-specific prices" in (
+        data["fuel_cost"]["refueling_cost_note"]
+    )
     assert data["fuel_cost"]["available"] is True
+    assert data["fuel_cost"]["is_monetary_quote"] is False
     assert data["fuel_cost"]["price_basis"] == "csv_state_reference"
     assert data["fuel_cost"]["source_rows"]
     assert data["fuel_cost"]["method"] == (
@@ -308,7 +313,8 @@ def test_route_reference_and_compact_osm_tags_are_used(
     assert data["priced_stations"][0]["price_status"] == "csv_reference"
     assert data["fuel_cost"]["price_basis"] == "csv_route_reference"
     assert data["fuel_cost"]["source_rows"]
-    assert data["fuel_cost"]["total"] > 0
+    assert data["fuel_cost"]["estimated_trip_fuel_cost"] > 0
+    assert data["fuel_cost"]["is_monetary_quote"] is False
     assert "reference_price_not_station_quote" in (
         data["data_quality"]["warnings"]
     )

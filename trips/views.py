@@ -314,9 +314,18 @@ class OptimizeRouteView(APIView):
                     if reference is not None
                 ],
                 "fuel_cost": {
-                    "total": _money(reference_cost),
+                    "estimated_trip_fuel_cost": _money(reference_cost),
+                    "estimated_refueling_cost": _money(result.total_cost),
+                    "refueling_cost_note": (
+                        "Estimated using prices available to the optimizer. "
+                        "In live requests these are corridor reference "
+                        "prices, not station quotes."
+                        if result.total_cost is not None
+                        else "No station-specific prices available; "
+                        "refueling purchases are not estimated."
+                    ),
                     "available": cost_available,
-                    "purchase_cost_at_stops": _money(result.total_cost),
+                    "is_monetary_quote": False,
                     "price_basis": reference.basis if reference else None,
                     "price_region": reference.region if reference else None,
                     "station_specific": False,

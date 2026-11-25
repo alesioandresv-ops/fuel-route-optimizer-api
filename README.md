@@ -187,11 +187,12 @@ Instead, the API derives a **corridor price reference** from the CSV:
 - The artifact aggregates observations by route and state, preserving `source_rows`.
 - The runtime uses the median of distinct observed values, plus count, minimum, and maximum.
 - A route reference (for example `I 95, US 41`) takes precedence over a state reference; a national reference is the final fallback.
-- `fuel_cost.total` is estimated as `route_distance_miles / mpg * reference_price`. It is a corridor estimate, **not a quote for any station**.
+- `fuel_cost.estimated_trip_fuel_cost` is estimated as `route_distance_miles / mpg * reference_price`. It is the cost of fuel **consumed** over the trip, a corridor estimate, **not a quote for any station**.
+- `fuel_cost.estimated_refueling_cost` estimates money spent at stops. It is `null` when station-specific prices are unavailable, so it is never presented as equivalent to the trip fuel cost.
 - `station_specific` is always `false` and `verified_price_matches` is always `0` for live requests.
 - The response reports `no_verified_price_matches` and `reference_price_not_station_quote`.
 
-The response also exposes `purchase_cost_at_stops`, which is only populated when the optimizer receives station-specific prices (for example in the labeled synthetic tests).
+`fuel_cost.is_monetary_quote` is always `false` because `currency` is `unspecified`: the number is a calculation from the reference price, not a confirmed monetary quote. The cost-aware selection logic with station-specific prices is demonstrated in the labeled synthetic fixtures in `trips/test_cost_optimizer.py`.
 
 Currency and fuel type remain unspecified because the source data does not establish them.
 
